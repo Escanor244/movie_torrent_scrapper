@@ -79,15 +79,44 @@ def parse_topic_page(html_content, page_url):
         
     movie_name = extract_movie_name(title_text)
     
-    # Find all torrent links
-    # Look for <a> tags with data-fileext="torrent" or href matching attachment.php
+    # Find all torrent links using multiple combined strategies
     torrents = []
+    seen_hrefs = set()
+    anchors = []
     
-    # 1TamilMV attachments usually have class ipsAttachLink_block or data-fileext="torrent"
-    anchors = soup.find_all('a', attrs={"data-fileext": "torrent"})
-    if not anchors:
-        # Fallback to regex on href
-        anchors = soup.find_all('a', href=re.compile(r'attachment\.php\?id=\d+'))
+    # 1. Look for tags with data-fileext="torrent"
+    for a in soup.find_all('a', attrs={"data-fileext": "torrent"}):
+        href = a.get('href')
+        if href and href not in seen_hrefs:
+            seen_hrefs.add(href)
+            anchors.append(a)
+            
+    # 2. Look for attachment.php links
+    for a in soup.find_all('a', href=re.compile(r'attachment\.php\?id=\d+')):
+        href = a.get('href')
+        if href and href not in seen_hrefs:
+            # Skip image attachments
+            fileext = a.get('data-fileext')
+            if fileext and fileext.lower() != 'torrent':
+                continue
+            # Get text to filter out images (torrborder.gif, uTorrent.png)
+            link_text = a.text.strip()
+            if not link_text:
+                span = a.find('span')
+                if span:
+                    link_text = span.text.strip()
+            if any(ext in link_text.lower() for ext in ['.gif', '.png', '.jpg', '.jpeg', '.webp']):
+                continue
+                
+            seen_hrefs.add(href)
+            anchors.append(a)
+            
+    # 3. Look for direct links ending with .torrent
+    for a in soup.find_all('a', href=re.compile(r'\.torrent$', re.IGNORECASE)):
+        href = a.get('href')
+        if href and href not in seen_hrefs:
+            seen_hrefs.add(href)
+            anchors.append(a)
         
     for a in anchors:
         href = a.get('href')
@@ -111,12 +140,10 @@ def parse_topic_page(html_content, page_url):
         
         # If size couldn't be parsed from the link text itself, look at the parent element or nearby text
         if size_bytes is None:
-            # Let's try searching text in siblings or parents
             parent_text = a.parent.text if a.parent else ""
             size_bytes, size_str = parse_size_to_bytes(parent_text)
             
         # Decide selection (less than 2GB)
-        # Threshold: 2GB = 2 * 1024 * 1024 * 1024 = 2,147,483,648 bytes
         selected = False
         if size_bytes is not None:
             selected = size_bytes < 2 * 1024 * 1024 * 1024

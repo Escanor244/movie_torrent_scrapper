@@ -188,6 +188,55 @@ def run_auto(count_limit, duration_seconds):
     finally:
         close_session()
 
+def flush_database_and_downloads():
+    from db import get_db_client
+    import shutil
+    import glob
+    
+    print("\n================== FLUSHING SYSTEM ==================")
+    # 1. Clear MongoDB Collection
+    try:
+        client, db = get_db_client()
+        # Drop the movies collection
+        db.movies.drop()
+        print("MongoDB collection 'movies' dropped successfully.")
+    except Exception as db_err:
+        print(f"Error dropping MongoDB collection: {db_err}")
+    finally:
+        try:
+            client.close()
+        except:
+            pass
+            
+    # 2. Clear Downloads Directory
+    if os.path.exists(TORRENT_DOWNLOAD_DIR):
+        try:
+            shutil.rmtree(TORRENT_DOWNLOAD_DIR)
+            print(f"Downloads folder '{TORRENT_DOWNLOAD_DIR}' deleted successfully.")
+        except Exception as dir_err:
+            print(f"Error deleting downloads folder: {dir_err}")
+    else:
+        print("Downloads folder does not exist. Nothing to delete.")
+        
+    # 3. Clear logs and rejected.txt
+    for filename in [REJECTED_FILE]:
+        if os.path.exists(filename):
+            try:
+                os.remove(filename)
+                print(f"File '{filename}' deleted successfully.")
+            except Exception as f_err:
+                print(f"Error deleting '{filename}': {f_err}")
+                
+    # Clean any local log files
+    for log_file in glob.glob("*.log"):
+        try:
+            os.remove(log_file)
+            print(f"Log file '{log_file}' deleted successfully.")
+        except Exception as log_err:
+            print(f"Error deleting log file '{log_file}': {log_err}")
+            
+    print("=====================================================\n")
+
 def main():
     parser = argparse.ArgumentParser(description="1TamilMV Torrent Scraper and Indexer")
     
@@ -203,6 +252,9 @@ def main():
                             help=f"Number of movies to index in this cycle (default: {DEFAULT_CYCLE_COUNT})")
     auto_parser.add_argument("--duration", type=int, default=None,
                             help="Max duration for this cycle in seconds (optional)")
+                            
+    # Flush sub-command
+    subparsers.add_parser("flush", help="Reset/Flush the database, downloads directory, and logs")
     
     args = parser.parse_args()
     
@@ -210,6 +262,8 @@ def main():
         run_search(args.title)
     elif args.command == "auto":
         run_auto(args.count, args.duration)
+    elif args.command == "flush":
+        flush_database_and_downloads()
     else:
         parser.print_help()
 
