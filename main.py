@@ -111,8 +111,9 @@ def run_auto(count_limit, duration_seconds):
                 
             print(f"\n[{scraped_count + 1}/{count_limit}] Processing URL: {url}")
             try:
-                # Add delay to be polite
-                time.sleep(2.0)
+                # Add delay to be polite and avoid rate limit blocks
+                import random
+                time.sleep(random.uniform(3.0, 6.0))
                 
                 # Fetch page HTML
                 html = fetch_html(url)
