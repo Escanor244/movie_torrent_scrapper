@@ -7,8 +7,10 @@ A robust web scraper designed to cron/auto crawl 1TamilMV topic links, index mov
 ## Features
 - **Chronological Crawling:** Sequentially crawls the website, starting with the newest posts at the top of the homepage.
 - **2GB Filter:** Automatically parses torrent sizes (GB/MB/KB) and only downloads torrents under 2.0 GB.
-- **Safety Backups:** Creates a `links.txt` in each downloaded movie folder detailing the **source page URL** and **all available torrent links** on that page.
-- **Anti-Bot Protection Recovery:** Uses a persistent `requests.Session` with a **Chrome 137 user-agent** and an **exponential backoff retry mechanism** to recover from Connection Resets (Error 10054).
+- **Non-Torrent Link Support:** Automatically extracts external direct links (e.g. `nowshort.com`, `manalinks.in`) with original context and saves them in `links.txt` if torrent links are not available or alongside them.
+- **TV Series Tracking:** Detects TV series patterns (`S01`, `S1`, `Season 01`, etc.) and extracts a clean base name. If a new episode/season for an already indexed series is encountered, it logs the release in `new_tv_releases.log` and fires a notification.
+- **Online Search Mode:** Subcommand to query the search page directly, navigate pages dynamically (pagination), and index results into a separate `downloads/search` directory.
+- **Anti-Bot Protection Recovery:** Uses a persistent `requests.Session` with a **Chrome 137 user-agent** and an **exponential backoff retry mechanism** to recover from Connection Resets (Error 10054) and skips known bad/404 URLs.
 - **Run-Specific Log Files:** 
   - `no_torrents_<start_time>.log` lists posts lacking any torrent attachments.
   - `download_failures_<start_time>.log` records page fetch and download issues.
@@ -62,15 +64,23 @@ python main.py auto --count 20 --duration 300
 
 ---
 
-### 2. Search Database
-Check if a movie or series has already been indexed and retrieve all download links under 2GB:
+### 2. Search Database (Offline)
+Check if a movie or series has already been indexed in MongoDB and retrieve download links under 2GB:
 ```cmd
 python main.py search "Breakfast"
 ```
 
 ---
 
-### 3. Reset / Flush System
+### 3. Search and Index Online
+Perform a dynamic online query on the forum, scraping and downloading all matching result pages through pagination. Stored in a separate `downloads/search` folder:
+```cmd
+python main.py search-online "Avengers"
+```
+
+---
+
+### 4. Reset / Flush System
 To clear the database (drop MongoDB collection), delete the `downloads` directory, and wipe out all local run logs:
 ```cmd
 python main.py flush

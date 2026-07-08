@@ -82,7 +82,7 @@ python main.py auto --count 20 --duration 180
 
 ---
 
-### Command 2: Search Database
+### Command 2: Search Database (Offline)
 Instantly check if a movie was already scraped and retrieve all its torrent links under 2GB:
 ```cmd
 python main.py search "Breakfast"
@@ -90,3 +90,29 @@ python main.py search "Breakfast"
 ```cmd
 python main.py search "Reign of Terror"
 ```
+
+---
+
+### Command 3: Search and Index Online
+Query 1TamilMV online for a keyword, follow pagination through all pages, extract results, and download them to a dedicated `downloads/search` folder:
+```cmd
+python main.py search-online "Avengers"
+```
+
+---
+
+## 3. Advanced Features
+
+### TV Series Tracking & Alerts
+When saving movie documents to MongoDB, the scraper checks for TV series keywords (`S1`, `S01`, `Season 01`, `Ep 01`, `EP(01-10)`, etc.). If classified as a TV series, it indexes additional fields:
+- `is_tv_series`: `True`
+- `tv_series_base_name`: (e.g. `Game of Thrones (2011)`)
+- `season_str`: (e.g. `S01`)
+- `episode_str`: (e.g. `EP(01-10)`)
+
+If another episode or season of the same TV series is processed later, the scraper compares metadata and triggers a real-time console notification:
+`>>> [NOTIFICATION] New TV Series content detected: '<Title>' (Base: '<Base>', Season: '<Season>', Ep: '<Ep>')!`
+And logs the release in `new_tv_releases.log`.
+
+### Non-Torrent Downloads
+For pages containing direct, non-torrent download options (such as Google Drive/redirector links like `nowshort.com` or `manalinks.in`), the scraper extracts the links, pairs them with their filename/size contexts, and outputs a properly formatted `links.txt` file in the movie directory. If a page contains no torrent links but has direct links, the page is processed successfully rather than being rejected.

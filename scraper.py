@@ -366,3 +366,69 @@ def get_topic_links_from_homepage(html_content, base_url):
                 links.append(clean_url)
             
     return links
+
+def get_topic_links_from_search(query):
+    """
+    Performs search and gets topic links from all pages of results.
+    """
+    # If the query is a local file, parse it as a single page directly
+    if os.path.exists(query) or query.startswith('file:///'):
+        path = query.replace('file:///', '') if query.startswith('file:///') else query
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                html = f.read()
+            soup = BeautifulSoup(html, 'html.parser')
+            topic_links = []
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if 'topic/' in href:
+                    abs_url = urllib.parse.urljoin(query, href)
+                    clean_url = abs_url.split('#')[0].split('&findComment=')[0]
+                    if clean_url not in topic_links:
+                        topic_links.append(clean_url)
+            return topic_links
+
+    escaped_query = urllib.parse.quote_plus(query)
+    
+    topic_links = []
+    seen = set()
+    page = 1
+    
+    while True:
+        url = f"https://www.1tamilmv.report/index.php?/search/&do=quicksearch&q={escaped_query}&type=forums_topic"
+        if page > 1:
+            url += f"&page={page}"
+            
+        print(f"  Fetching search page {page}: {url}")
+        
+        try:
+            html = fetch_html(url)
+        except Exception as e:
+            print(f"  Error fetching search page {page}: {e}")
+            break
+            
+        soup = BeautifulSoup(html, 'html.parser')
+        
+        page_links = []
+        for a in soup.find_all('a', href=True):
+            href = a['href']
+            if 'topic/' in href:
+                abs_url = urllib.parse.urljoin(url, href)
+                clean_url = abs_url.split('#')[0].split('&findComment=')[0]
+                if clean_url not in seen:
+                    seen.add(clean_url)
+                    page_links.append(clean_url)
+                    
+        if not page_links:
+            print(f"  No more topic links found on page {page}. Stopping.")
+            break
+            
+        topic_links.extend(page_links)
+        page += 1
+        
+        # Polite delay
+        import time
+        import random
+        time.sleep(random.uniform(2.0, 4.0))
+        
+    return topic_links

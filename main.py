@@ -12,7 +12,8 @@ from scraper import (
     parse_topic_page,
     download_torrent,
     save_links_txt,
-    save_non_torrent_links_txt
+    save_non_torrent_links_txt,
+    get_topic_links_from_search
 )
 
 load_dotenv()
@@ -249,6 +250,110 @@ def flush_database_and_downloads():
             
     print("=====================================================\n")
 
+def run_search_online(query):
+    from scraper import close_session
+    start_time_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    no_torrents_log_file = f"search_no_torrents_{start_time_str}.log"
+    download_failures_log_file = f"search_download_failures_{start_time_str}.log"
+
+    print("\n================== STARTING ONLINE SEARCH MODE ==================")
+    print(f"Query: '{query}'")
+    print(f"Download directory: {os.path.join(TORRENT_DOWNLOAD_DIR, 'search')}")
+    print("=================================================================\n")
+    
+    try:
+        topic_urls = get_topic_links_from_search(query)
+        print(f"Found {len(topic_urls)} matching topic URL(s) from search.")
+    except Exception as e:
+        print(f"Failed to fetch search results: {e}")
+        return
+        
+    scraped_count = 0
+    skipped_count = 0
+    rejected_count = 0
+    downloaded_torrents_count = 0
+    
+    cycle_scraped = []
+    cycle_rejected = []
+    
+    for url in topic_urls:
+        if "forums/topic/183-0/" in url or url == "https://www.1tamilmv.report/index.php?/forums/topic/183-0/":
+            print(f"\nSkipping known 404 URL: {url}")
+            continue
+            
+        if is_already_scraped(url):
+            skipped_count += 1
+            continue
+            
+        print(f"\nProcessing Search Result URL: {url}")
+        try:
+            # Add delay to be polite
+            import random
+            time.sleep(random.uniform(3.0, 6.0))
+            
+            html = fetch_html(url)
+            movie_data = parse_topic_page(html, url)
+            movie_data["scraped_at"] = datetime.utcnow()
+            
+            title = movie_data["title"]
+            torrents = movie_data["torrents"]
+            non_torrents = movie_data.get("non_torrents", [])
+            
+            if not torrents and not non_torrents:
+                print(f"  --> Rejected: No torrent or non-torrent links found for '{title}'")
+                append_to_rejected(title, url)
+                cycle_rejected.append((title, url))
+                rejected_count += 1
+                
+                with open(no_torrents_log_file, "a", encoding="utf-8") as log_f:
+                    log_f.write(f"Time: {datetime.now().isoformat()} | Title: {title} | URL: {url}\n")
+                
+                save_movie(movie_data)
+                scraped_count += 1
+                continue
+                
+            print(f"  Title: {title}")
+            movie_download_dir = os.path.join(TORRENT_DOWNLOAD_DIR, "search", title)
+            
+            # Save links.txt
+            if non_torrents:
+                print(f"  Found {len(non_torrents)} non-torrent links. Saving to links.txt.")
+                save_non_torrent_links_txt(movie_download_dir, non_torrents, url)
+            elif torrents:
+                save_links_txt(movie_download_dir, torrents, url)
+                
+            # Filter and download torrent links
+            if torrents:
+                selected_torrents = [t for t in torrents if t["selected"]]
+                print(f"  Found {len(torrents)} torrent links. {len(selected_torrents)} are under 2GB.")
+                for t in selected_torrents:
+                    try:
+                        print(f"    Downloading {t['filename']} ({t['size_str']})...")
+                        download_torrent(t['url'], movie_download_dir, t['filename'])
+                        downloaded_torrents_count += 1
+                    except Exception as dl_err:
+                        print(f"      Error downloading torrent {t['filename']}: {dl_err}")
+                        with open(download_failures_log_file, "a", encoding="utf-8") as log_f:
+                            log_f.write(f"Time: {datetime.now().isoformat()} | Movie: {title} | Torrent: {t['filename']} | Link: {t['url']} | Error: {dl_err}\n")
+            
+            save_movie(movie_data)
+            cycle_scraped.append(title)
+            scraped_count += 1
+            
+        except Exception as err:
+            print(f"  Error processing page {url}: {err}")
+            with open(download_failures_log_file, "a", encoding="utf-8") as log_f:
+                log_f.write(f"Time: {datetime.now().isoformat()} | URL: {url} | Error: {err}\n")
+                
+    print("\n================== SEARCH CYCLE COMPLETE SUMMARY ==================")
+    print(f"Movies / Series Scraped & Indexed: {scraped_count}")
+    print(f"  - Successfully processed and downloaded: {len(cycle_scraped)}")
+    print(f"  - Rejected (No Torrents/Links): {rejected_count}")
+    print(f"Already Indexed (Skipped): {skipped_count}")
+    print(f"Total Torrent files downloaded: {downloaded_torrents_count}")
+    print("===================================================================\n")
+    close_session()
+
 def main():
     parser = argparse.ArgumentParser(description="1TamilMV Torrent Scraper and Indexer")
     
@@ -258,6 +363,10 @@ def main():
     search_parser = subparsers.add_parser("search", help="Search movie database for torrents under 2GB")
     search_parser.add_argument("title", type=str, help="Movie or series title to search for")
     
+    # Search-online sub-command
+    search_online_parser = subparsers.add_parser("search-online", help="Search the website online and download links")
+    search_online_parser.add_argument("query", type=str, help="Movie or series title to search for on the website")
+
     # Auto sub-command
     auto_parser = subparsers.add_parser("auto", help="Run crawler in auto mode to index movies")
     auto_parser.add_argument("--count", type=int, default=DEFAULT_CYCLE_COUNT,
@@ -272,6 +381,8 @@ def main():
     
     if args.command == "search":
         run_search(args.title)
+    elif args.command == "search-online":
+        run_search_online(args.query)
     elif args.command == "auto":
         run_auto(args.count, args.duration)
     elif args.command == "flush":
