@@ -55,11 +55,69 @@ def extract_movie_name(title_text):
     fallback = re.sub(r'[\\/*?:"<>|]', "", fallback)
     return fallback
 
+def extract_non_torrent_links(soup):
+    container = soup.find('div', class_='ipsType_richText')
+    if not container:
+        return []
+        
+    non_torrent_links = []
+    for a in container.find_all('a', href=True):
+        href = a['href']
+        if (not href.endswith('.torrent') and 
+            'attachment.php?id=' not in href and 
+            not any(x in href.lower() for x in ['.jpg', '.jpeg', '.png', '.gif', '.webp']) and
+            not any(x in href.lower() for x in ['1tamilmv', 'themoviedb.org', 'imdb.com', 'google.com', 'youtube.com'])):
+            non_torrent_links.append(a)
+            
+    results = []
+    all_elements = []
+    def walk(node):
+        if node.name == 'a' and node in non_torrent_links:
+            all_elements.append(node)
+            return
+        if isinstance(node, str):
+            txt = re.sub(r'\s+', ' ', node).strip()
+            txt = txt.replace('\u00a0', ' ').replace('\u200b', '')
+            if txt:
+                all_elements.append(txt)
+            return
+        for child in node.children:
+            walk(child)
+            
+    walk(container)
+    
+    current_text_blocks = []
+    for el in all_elements:
+        if isinstance(el, str):
+            current_text_blocks.append(el)
+        else:
+            href = el['href']
+            context = ''
+            for txt in reversed(current_text_blocks):
+                if '.mkv' in txt or '.mp4' in txt or '[' in txt or '@' in txt:
+                    context = txt
+                    break
+            if not context and current_text_blocks:
+                context = current_text_blocks[-1]
+            
+            if '@' in context:
+                idx = context.find('@')
+                context = context[idx:]
+            
+            results.append({
+                "context": context,
+                "url": href
+            })
+            current_text_blocks = []
+            
+    return results
+
 def parse_topic_page(html_content, page_url):
     """
     Parses a topic page for:
     - Movie name
     - Torrent links (url, filename, size, selection status)
+    - Non-torrent links (url, context)
     """
     soup = BeautifulSoup(html_content, 'html.parser')
     
@@ -156,11 +214,15 @@ def parse_topic_page(html_content, page_url):
             "selected": selected
         })
         
+    # Extract non-torrent links
+    non_torrents = extract_non_torrent_links(soup)
+        
     return {
         "title": movie_name,
         "raw_title": title_text,
         "page_url": page_url,
-        "torrents": torrents
+        "torrents": torrents,
+        "non_torrents": non_torrents
     }
 
 # Persistent Session with Chrome 137 headers
@@ -211,6 +273,27 @@ def save_links_txt(dest_folder, torrents, page_url):
             f.write(f"   Size: {t['size_str']} ({t['size_bytes']} bytes)\n")
             f.write(f"   Status: {status}\n")
             f.write(f"   Link: {t['url']}\n\n")
+
+def save_non_torrent_links_txt(dest_folder, non_torrents, page_url):
+    """
+    Saves a links.txt file containing all available non-torrent links in the movie folder
+    with their context formatted like the user requested.
+    """
+    os.makedirs(dest_folder, exist_ok=True)
+    dest_path = os.path.join(dest_folder, "links.txt")
+    with open(dest_path, "w", encoding="utf-8") as f:
+        f.write(f"Source Page: {page_url}\n\n")
+        for t in non_torrents:
+            context = t["context"]
+            url = t["url"]
+            # Formatting logic:
+            # ex1: If it's a manalinks or other, use double spacing / blank line between context and url
+            # ex2: If it's nowshort or similar, put them on the same line (separated by space)
+            # We can check if 'nowshort' in url or 'nowshort' in context
+            if 'nowshort' in url or 'nowshort' in context:
+                f.write(f"{context} {url}\n\n")
+            else:
+                f.write(f"{context}\n\n{url}\n\n")
 
 def fetch_html(url_or_path):
     """

@@ -11,7 +11,8 @@ from scraper import (
     get_topic_links_from_homepage,
     parse_topic_page,
     download_torrent,
-    save_links_txt
+    save_links_txt,
+    save_non_torrent_links_txt
 )
 
 load_dotenv()
@@ -93,6 +94,11 @@ def run_auto(count_limit, duration_seconds):
         cycle_rejected = []
         
         for url in topic_urls:
+            # Check for specific 404 URL to skip
+            if "forums/topic/183-0/" in url or url == "https://www.1tamilmv.report/index.php?/forums/topic/183-0/":
+                print(f"\nSkipping known 404 URL: {url}")
+                continue
+
             # Check time limit
             elapsed = time.time() - start_time
             if duration_seconds and elapsed >= duration_seconds:
@@ -122,9 +128,10 @@ def run_auto(count_limit, duration_seconds):
                 
                 title = movie_data["title"]
                 torrents = movie_data["torrents"]
+                non_torrents = movie_data.get("non_torrents", [])
                 
-                if not torrents:
-                    print(f"  --> Rejected: No torrent links found for '{title}'")
+                if not torrents and not non_torrents:
+                    print(f"  --> Rejected: No torrent or non-torrent links found for '{title}'")
                     append_to_rejected(title, url)
                     cycle_rejected.append((title, url))
                     rejected_count += 1
@@ -138,26 +145,30 @@ def run_auto(count_limit, duration_seconds):
                     scraped_count += 1
                     continue
                     
-                # Filter and download torrent links
-                selected_torrents = [t for t in torrents if t["selected"]]
                 print(f"  Title: {title}")
-                print(f"  Found {len(torrents)} torrent links. {len(selected_torrents)} are under 2GB.")
-                
                 movie_download_dir = os.path.join(TORRENT_DOWNLOAD_DIR, title)
                 
-                # Save the links.txt file with all available links and source page URL for safety
-                save_links_txt(movie_download_dir, torrents, url)
+                # Save the links
+                if non_torrents:
+                    print(f"  Found {len(non_torrents)} non-torrent links. Saving to links.txt.")
+                    save_non_torrent_links_txt(movie_download_dir, non_torrents, url)
+                elif torrents:
+                    save_links_txt(movie_download_dir, torrents, url)
                 
-                for t in selected_torrents:
-                    try:
-                        print(f"    Downloading {t['filename']} ({t['size_str']})...")
-                        download_torrent(t['url'], movie_download_dir, t['filename'])
-                        downloaded_torrents_count += 1
-                    except Exception as dl_err:
-                        print(f"      Error downloading torrent {t['filename']}: {dl_err}")
-                        # Log torrent download failure
-                        with open(download_failures_log_file, "a", encoding="utf-8") as log_f:
-                            log_f.write(f"Time: {datetime.now().isoformat()} | Movie: {title} | Torrent: {t['filename']} | Link: {t['url']} | Error: {dl_err}\n")
+                # Filter and download torrent links if any exist
+                if torrents:
+                    selected_torrents = [t for t in torrents if t["selected"]]
+                    print(f"  Found {len(torrents)} torrent links. {len(selected_torrents)} are under 2GB.")
+                    for t in selected_torrents:
+                        try:
+                            print(f"    Downloading {t['filename']} ({t['size_str']})...")
+                            download_torrent(t['url'], movie_download_dir, t['filename'])
+                            downloaded_torrents_count += 1
+                        except Exception as dl_err:
+                            print(f"      Error downloading torrent {t['filename']}: {dl_err}")
+                            # Log torrent download failure
+                            with open(download_failures_log_file, "a", encoding="utf-8") as log_f:
+                                log_f.write(f"Time: {datetime.now().isoformat()} | Movie: {title} | Torrent: {t['filename']} | Link: {t['url']} | Error: {dl_err}\n")
                         
                 # Save to Database
                 save_movie(movie_data)
